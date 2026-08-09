@@ -1,0 +1,12 @@
+#1. create databse named "ethio_microfinance" on your database, if you prefer xampp server, use phpMyAdmin to create you database.
+#2. After creating the database import the database to you database server, if you prefered xampp after creating the  database click import tab then import the database from uploads/sql/ the file ethio_microfinance.sql.
+#3. afetr importing the database,
+    #3.1. extract the ethio_microfinance.zip file to your server public directory, if you prefer xampp, extract to xampp/htdocs directory.
+#4. After extracting the the file, start your server and database server.
+#5. after starting both, go to your prefered browser and enter the url "localhost/ethio_microfinance/ and hit enter.
+
+        N.B 
+            Make sure your file extracting looks extractly this directory structure
+            c:/xampp/ethio_microfinance/. to try on localhost
+
+during production run, you must run on docker to avaoid device direct attack

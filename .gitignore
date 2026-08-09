@@ -1,0 +1,18 @@
+# Environment secrets -- never commit real credentials
+.env
+
+# Uploaded user content (runtime data, not source)
+uploads/*
+!uploads/sql/
+!uploads/.gitkeep
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+
+# Docker volumes data (if bind-mounted locally)
+db_data/
+
+# One-time migration script's local run artifacts, if any
+*.log
