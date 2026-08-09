@@ -103,10 +103,64 @@ Master Plan document for the full concept explanations behind each fix.
 
 ---
 
+## [New] Full Docker environment — 2026-08-09
+
+Built out everything Part 5 of the Master Plan specified but hadn't yet
+been implemented, plus closed two Part 12 open items along the way:
+
+- **`Dockerfile`** — PHP-FPM (Alpine), non-root `appuser`, mysqli extension,
+  `fcgi` package for healthchecks. Code is baked in via `COPY` (image is
+  self-contained; see note on `docker-compose.yml` below).
+- **`docker/php/php-hardening.ini`** — defense-in-depth: disables
+  `eval`/`system`/`exec`-class functions at the PHP engine level (belt and
+  suspenders on top of already removing them from our own code), hides
+  `X-Powered-By`, disables `display_errors`.
+- **`docker/php/www.conf`** — PHP-FPM pool runs as non-root, bounded worker
+  pool (`pm.max_children=12`) for graceful degradation under load, exposes
+  a native `/ping` endpoint for healthchecks.
+- **`docker/nginx/nginx.conf`** — reverse proxy, the *only* published port
+  in the whole stack. Implements Part 7.2's rate limiting: general traffic
+  capped at 10 req/s, login endpoints specifically capped at 2 req/s
+  (brute-force mitigation at the edge, before requests even reach PHP).
+  Also blocks direct access to `config/`, `includes/`, `.git/`, `docker/`,
+  and PHP execution inside `uploads/`.
+- **`docker/mysql/init/01-restrict-privileges.sql`** — closes the "add a
+  least-privilege DB user" open item: the app's DB user gets exactly
+  `SELECT, INSERT, UPDATE, DELETE` on the one database it needs, not
+  `ALL PRIVILEGES` and not root.
+- **`docker-compose.yml`** — wires all three services together with a
+  two-network design: `edge` (carries the published port to nginx only)
+  and `internal` (genuinely `internal: true` — app and db have no outbound
+  route at all, real defense in depth beyond just "port not published").
+  Health checks and `restart: unless-stopped` on every service (Part 7.4).
+  Resource limits on every service (Part 5.4/7). Non-root + read-only
+  root filesystem on app and nginx, with `tmpfs` mounts for the specific
+  paths that need to stay writable (PHP sessions, nginx's own runtime
+  files).
+- **`.env.example`**, **`.dockerignore`**, **`README.md`** — setup docs and
+  making sure secrets/dev files never end up baked into the image.
+
+**Verified so far**: YAML syntax (`python3 -c "import yaml..."`), nginx
+config syntax (real `nginx -t` against the actual config — clean except for
+one expected DNS-resolution message for the Docker-internal hostname
+`app`, which only resolves inside the Compose network). **Not yet
+verified**: an actual `docker compose up` end-to-end run — this sandbox has
+no Docker daemon available, so that step needs to happen on your machine.
+
+**Design correction made during review**: the app service originally both
+baked code into the image (`Dockerfile COPY`) *and* bind-mounted the same
+path from the host at runtime — the mount would have silently made the
+`COPY` pointless. Removed the redundant bind mount; the app image is now
+genuinely self-contained (code changes require `docker compose build app`
+to take effect, which `README.md` documents).
+
+---
+
 ## Not yet started
 
 - `modules/loans/{apply,approve,dashboard,repay}.php`
 - `modules/accounts/{create,deposit,withdraw}.php`
 - `admin/manage_users.php`
-- Docker stack (Dockerfile / docker-compose.yml) — currently only
-  specified in the Master Plan doc, not yet built or tested.
+- An actual `docker compose up` end-to-end test run (needs to happen on
+  a machine with a real Docker daemon — see README.md)
+- Self-signed TLS on the nginx reverse proxy (still plain HTTP)

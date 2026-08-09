@@ -1,0 +1,120 @@
+# docker-compose.yml -- Ethio Microfinance
+#
+# Architecture (Master Plan Part 5.5, updated with Part 7's reverse proxy):
+#
+#   LAN --> [nginx: ONLY published port] --> [app: PHP-FPM, internal only] --> [db: internal only, no published port]
+#
+# Only nginx's port is reachable from outside the Docker network. Neither
+# app nor db can be reached directly from the LAN, regardless of what bugs
+# might exist in either.
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${APP_PORT:-8080}:80"   # the ONLY published port in this whole stack
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./:/var/www/html:ro       # read-only -- nginx only ever serves static/passes to PHP, never writes
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [edge, internal]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/modules/users/login.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 256M }
+
+  app:
+    build: .
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME:-ethio_microfinance}
+    volumes:
+      # NOTE: no bind mount of the code here deliberately -- the app image
+      # is self-contained via the Dockerfile's COPY step. Bind-mounting the
+      # host source over it here would silently make that COPY pointless
+      # and blur whether this is a reproducible built image or a live dev
+      # mount. Code changes require `docker compose build app` to take
+      # effect, which is the correct expectation for a hardened, tested
+      # image (Part 9's self-test procedure should be re-run after that
+      # rebuild, not assumed still valid).
+      - uploads_data:/var/www/html/uploads  # the one directory that must stay writable
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+    restart: unless-stopped
+    user: "1000:1000"        # non-root (Part 5.3) -- matches appuser in Dockerfile
+    read_only: true          # Part 5.3
+    tmpfs:
+      - /tmp                 # PHP sessions + php-fpm runtime files need a writable /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "SCRIPT_NAME=/ping SCRIPT_FILENAME=/ping REQUEST_METHOD=GET cgi-fcgi -bind -connect 127.0.0.1:9000 | grep -q pong"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+  db:
+    image: mariadb:11
+    # NO ports: section -- 3306 is reachable only from the 'app' container,
+    # over the internal Docker network, never from the host or LAN (Part 5.2).
+    environment:
+      - MYSQL_DATABASE=${DB_NAME:-ethio_microfinance}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASS}
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./uploads/sql/ethio_microfinance.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./docker/mysql/init/01-restrict-privileges.sql:/docker-entrypoint-initdb.d/01-restrict-privileges.sql:ro
+    networks: [internal]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+networks:
+  # 'edge' carries the published-port traffic from the LAN to nginx only.
+  # It is a normal (non-internal) bridge network, since a network marked
+  # internal:true does not reliably support Docker's port-publishing NAT
+  # rules across Docker versions -- using it here would risk the published
+  # port silently not working.
+  edge: {}
+
+  # 'internal' is genuinely internal:true -- app and db have NO route out
+  # to the internet at all, even though nginx also sits on this network to
+  # reach them. This is what actually enforces Part 5.2/5.3's isolation:
+  # even a full RCE in the app container can't easily phone home or
+  # exfiltrate data outbound, and db is unreachable from the LAN by both
+  # "not published" AND "no outbound route" (redundant defense in depth).
+  internal:
+    internal: true
+
+volumes:
+  db_data:
+  uploads_data:
