@@ -156,6 +156,34 @@ to take effect, which `README.md` documents).
 
 ---
 
+## [Fixed] docker-compose.yml db healthcheck — 2026-08-10
+
+**Bug found via live testing on a real machine** (first actual `docker
+compose up` run, on Windows 11/Docker Desktop): the db service never
+reported healthy, which blocked `app` and `nginx` from starting at all
+(both correctly wait on `depends_on: condition: service_healthy`).
+
+Root cause: the healthcheck command referenced `$MYSQL_ROOT_PASSWORD`
+intending it to resolve inside the container at healthcheck-run time.
+Docker Compose's own variable interpolation pass also matches bare `$VAR`
+syntax (not just `${VAR}`) and runs *before* any container starts — since
+no compose-level variable named `MYSQL_ROOT_PASSWORD` exists (only
+`DB_ROOT_PASS` does), Compose silently substituted an empty string right
+in the YAML. The healthcheck was actually running
+`mysqladmin ping -u root -p"" ` — authenticating with a blank password
+against a database whose real root password was whatever `.env` set,
+so it failed every time.
+
+Fix: escaped the dollar sign (`$$MYSQL_ROOT_PASSWORD`) so Compose leaves
+it untouched at parse time, deferring resolution to the container's own
+shell at runtime, where the real env var actually exists.
+
+**Lesson for anywhere else `$VAR` appears inside a CMD-SHELL healthcheck
+string in this file**: always double-check whether it needs `$$` escaping
+— this class of bug is easy to introduce and the failure mode (silent
+empty-string substitution, not a parse error) doesn't announce itself
+clearly.
+
 ## Not yet started
 
 - `modules/loans/{apply,approve,dashboard,repay}.php`
