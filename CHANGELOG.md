@@ -199,11 +199,35 @@ the script long-term, delete it from inside the running container
 manually after use, rather than excluding it at build time and breaking
 first-time setup.
 
+## [Verified] Full stack confirmed working end-to-end — 2026-08-10
+
+After three real bugs found and fixed via live testing (the `$$` escaping
+issue, `mysqladmin` → `mariadb-admin` rename, and the `.dockerignore`
+exclusion contradiction above), the complete stack was brought up clean
+on Windows 11 + Docker Desktop and verified working for real:
+
+- `docker compose ps` — all three services (`nginx`, `app`, `db`) report
+  `healthy`
+- `migrate_hash_passwords.php` ran successfully inside the container
+- **Logged into the dashboard through the browser** at
+  `http://localhost:8080`, through the full path: nginx's rate-limited
+  reverse proxy → PHP-FPM (non-root, bounded worker pool) → prepared-
+  statement login query → bcrypt password verification → least-privilege
+  MariaDB user
+
+This is the first genuine end-to-end confirmation that Parts 1-6 of the
+Master Plan (threat modeling through detection/logging) work together as
+an actual running system, not just as individually-reviewed files.
+
+**Still to verify** (Part 9's self-test procedure hasn't been run yet):
+the `nmap` scan confirming port 3306 is genuinely unreachable from
+outside, the `?bypass=true` / default-credential / role=admin checks
+against the live deployment, and a load test against the rate limiter.
+
 ## Not yet started
 
 - `modules/loans/{apply,approve,dashboard,repay}.php`
 - `modules/accounts/{create,deposit,withdraw}.php`
 - `admin/manage_users.php`
-- An actual `docker compose up` end-to-end test run (needs to happen on
-  a machine with a real Docker daemon — see README.md)
+- Part 9's full self-test procedure against the live stack (see above)
 - Self-signed TLS on the nginx reverse proxy (still plain HTTP)
