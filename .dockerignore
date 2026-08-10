@@ -2,7 +2,16 @@
 .git
 .env
 CHANGELOG.md
-migrate_hash_passwords.php
+
+# migrate_hash_passwords.php is INTENTIONALLY NOT excluded here -- the
+# documented workflow (README.md) runs it via
+# `docker compose exec app php migrate_hash_passwords.php`, which requires
+# the file to actually exist inside the running container. Excluding it
+# from the build context would silently break that command. If you want
+# it gone after running it once, delete it from inside the container
+# manually (`docker compose exec app rm migrate_hash_passwords.php`) --
+# don't exclude it here, since that breaks first-time setup for anyone
+# who rebuilds the image before running it.
 
 # Runtime data -- the uploads volume is mounted separately at runtime
 uploads/*

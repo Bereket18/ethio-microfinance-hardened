@@ -184,6 +184,21 @@ string in this file**: always double-check whether it needs `$$` escaping
 empty-string substitution, not a parse error) doesn't announce itself
 clearly.
 
+## [Fixed] .dockerignore excluded migrate_hash_passwords.php — 2026-08-10
+
+**Bug found via live testing**: `.dockerignore` listed
+`migrate_hash_passwords.php` under "never bake into the image" — but
+`README.md` documents running it via
+`docker compose exec app php migrate_hash_passwords.php`, which requires
+the file to exist inside the running container. These two directly
+contradicted each other; the exec command failed until the exclusion was
+removed and the image rebuilt.
+
+Fix: removed the exclusion. If a fully-migrated image should not carry
+the script long-term, delete it from inside the running container
+manually after use, rather than excluding it at build time and breaking
+first-time setup.
+
 ## Not yet started
 
 - `modules/loans/{apply,approve,dashboard,repay}.php`
