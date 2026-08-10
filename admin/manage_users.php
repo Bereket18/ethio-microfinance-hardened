@@ -2,26 +2,44 @@
 // admin/manage_users.php - Modern User Management
 session_start();
 include_once '../config/database.php';
+include_once '../includes/auth.php';
+include_once '../includes/validation.php';
 
-if (!isset($_SESSION['is_admin']) || $_SESSION['is_admin'] != 1) {
-    header("Location: ../modules/users/login.php");
-    exit();
-}
+check_auth('admin');
+
+$notice = '';
 
 if (isset($_GET['action'])) {
+    // SECURITY: admin/dashboard.php's make_admin/delete links already
+    // append a csrf_token -- this file previously never checked it, so
+    // the token was decorative. Validating it here is what actually
+    // closes the CSRF hole for these state-changing GET actions.
+    require_csrf_token($_GET['csrf_token'] ?? '');
+
     $action = $_GET['action'];
-    $id = $_GET['id'] ?? 0;
-    
+    $id = (int)($_GET['id'] ?? 0);
+    $current_admin_id = (int)$_SESSION['user_id'];
+
     if ($action == 'delete') {
-        $query = "DELETE FROM users WHERE id = $id";
-        mysqli_query($conn, $query);
+        if ($id === $current_admin_id) {
+            $notice = "You can't delete your own account while logged in as it.";
+        } else {
+            $stmt = mysqli_prepare($conn, "DELETE FROM users WHERE id = ?");
+            mysqli_stmt_bind_param($stmt, "i", $id);
+            mysqli_stmt_execute($stmt);
+            mysqli_stmt_close($stmt);
+        }
     } elseif ($action == 'make_admin') {
-        $query = "UPDATE users SET role = 'admin' WHERE id = $id";
-        mysqli_query($conn, $query);
+        $stmt = mysqli_prepare($conn, "UPDATE users SET role = 'admin' WHERE id = ?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
     }
 }
 
 $users = mysqli_query($conn, "SELECT * FROM users");
+$csrf = csrf_token();
+function e($v) { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -35,66 +53,46 @@ $users = mysqli_query($conn, "SELECT * FROM users");
 <body>
     <nav class="navbar navbar-expand-lg navbar-modern fixed-top">
         <div class="container">
-            <a class="navbar-brand" href="dashboard.php">
-                <i class="bi bi-shield-lock"></i> Admin Panel
-            </a>
+            <a class="navbar-brand" href="dashboard.php"><i class="bi bi-shield-lock"></i> Admin Panel</a>
         </div>
     </nav>
 
     <div class="dashboard-wrapper">
         <div class="container">
+            <?php if ($notice): ?>
+                <div class="alert alert-warning alert-auto"><i class="bi bi-exclamation-triangle"></i> <?php echo e($notice); ?></div>
+            <?php endif; ?>
             <div class="card-modern fade-in-up">
                 <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <span><i class="bi bi-people text-primary"></i> User Management</span>
-                    <input type="text" class="form-control search-input w-auto" placeholder="Search users..." style="min-width: 200px;">
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
                         <table class="table table-modern mb-0">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Username</th>
-                                    <th>Email</th>
-                                    <th>Role</th>
-                                    <th>Balance</th>
-                                    <th>Created</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
+                            <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Balance</th><th>Created</th><th>Actions</th></tr></thead>
                             <tbody>
-                                <?php while($user = mysqli_fetch_assoc($users)): ?>
+                                <?php while ($user = mysqli_fetch_assoc($users)): ?>
                                 <tr>
-                                    <td><?php echo $user['id']; ?></td>
-                                    <td><strong><?php echo $user['username']; ?></strong></td>
-                                    <td><?php echo $user['email']; ?></td>
+                                    <td><?php echo (int)$user['id']; ?></td>
+                                    <td><strong><?php echo e($user['username']); ?></strong></td>
+                                    <td><?php echo e($user['email']); ?></td>
                                     <td>
-                                        <?php if($user['role'] == 'admin'): ?>
-                                            <span class="badge-modern danger">
-                                                <i class="bi bi-shield"></i> Admin
-                                            </span>
+                                        <?php if ($user['role'] == 'admin'): ?>
+                                            <span class="badge-modern danger"><i class="bi bi-shield"></i> Admin</span>
                                         <?php else: ?>
-                                            <span class="badge-modern info">
-                                                <i class="bi bi-person"></i> Customer
-                                            </span>
+                                            <span class="badge-modern info"><i class="bi bi-person"></i> Customer</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td>$<?php echo number_format($user['account_balance'], 2); ?></td>
-                                    <td><?php echo date('M d, Y', strtotime($user['created_at'])); ?></td>
+                                    <td>$<?php echo number_format((float)$user['account_balance'], 2); ?></td>
+                                    <td><?php echo e(date('M d, Y', strtotime($user['created_at']))); ?></td>
                                     <td>
                                         <div class="btn-group" role="group">
-                                            <a href="?action=make_admin&id=<?php echo $user['id']; ?>" 
-                                               class="btn btn-sm btn-warning" title="Make Admin">
-                                                <i class="bi bi-shield"></i>
-                                            </a>
-                                            <a href="../modules/users/profile.php?view=<?php echo $user['id']; ?>" 
-                                               class="btn btn-sm btn-info" title="View Profile">
-                                                <i class="bi bi-eye"></i>
-                                            </a>
-                                            <a href="?action=delete&id=<?php echo $user['id']; ?>" 
-                                               class="btn btn-sm btn-danger confirm-delete" title="Delete User">
-                                                <i class="bi bi-trash"></i>
-                                            </a>
+                                            <a href="?action=make_admin&id=<?php echo (int)$user['id']; ?>&csrf_token=<?php echo urlencode($csrf); ?>"
+                                               class="btn btn-sm btn-warning" title="Make Admin"><i class="bi bi-shield"></i></a>
+                                            <a href="../modules/users/profile.php?view=<?php echo (int)$user['id']; ?>"
+                                               class="btn btn-sm btn-info" title="View Profile"><i class="bi bi-eye"></i></a>
+                                            <a href="?action=delete&id=<?php echo (int)$user['id']; ?>&csrf_token=<?php echo urlencode($csrf); ?>"
+                                               class="btn btn-sm btn-danger confirm-delete" title="Delete User"><i class="bi bi-trash"></i></a>
                                         </div>
                                     </td>
                                 </tr>
