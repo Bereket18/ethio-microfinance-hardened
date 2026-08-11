@@ -27,7 +27,7 @@ services:
       - /var/run
       - /tmp
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/modules/users/login.php"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/modules/users/login.php"]
       interval: 30s
       timeout: 5s
       retries: 3
